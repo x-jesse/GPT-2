@@ -1,11 +1,46 @@
 import math
 import inspect
 from dataclasses import dataclass
+import os
 import torch
+import tiktoken
+import time
 import torch.nn as nn
+import torch.distributed as dist
 from torch.nn import functional as F
+from torch.distributed import init_process_group, destroy_process_group
+from torch.nn.parallel import DistributedDataParallel as DDP
 
-from dataloader import DataLoaderLite
+# from dataloader import DataLoaderLite
+
+class DataLoaderLite:
+    def __init__(self, B, T, filename, process_rank, num_processes):
+        self.B = B
+        self.T = T
+        self.process_rank = process_rank
+        self.num_processes = num_processes
+
+        with open(filename) as f:
+            text = f.read()
+        enc = tiktoken.get_encoding('gpt2')
+        tokens = enc.encode(text)
+        self.tokens = torch.tensor(tokens)
+        print(f"Loaded {len(self.tokens)} tokens")
+        print(f"1 epoch = {len(self.tokens) // (B * T)} batches")
+
+        self.current_position = self.B * self.T * self.process_rank
+    
+    def next_batch(self):
+        B, T = self.B, self.T
+        buf = self.tokens[self.current_position : self.current_position + B * T + 1]
+        x = (buf[:-1]).view(B, T)
+        y = (buf[1:]).view(B, T)
+
+        self.current_position += B * T * self.num_processes
+
+        if self.current_position + (B * T * self.num_processes + 1) > len(self.tokens):
+            self.current_position = self.B * self.T * self.process_rank
+        return x, y
 
 
 class CausalSelfAttention(nn.Module):
@@ -22,6 +57,7 @@ class CausalSelfAttention(nn.Module):
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
 
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
+        self.c_proj.SCALE_INIT = 1
         self.n_head = config.n_head
         self.n_embd = config.n_embd
 
@@ -63,7 +99,8 @@ class MLP(nn.Module):
         self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd)
         self.gelu = nn.GELU()
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd)
-    
+        self.c_proj.SCALE_INIT = 1
+
     def forward(self, x):
         x = self.c_fc(x)
         x = self.gelu(x)
@@ -112,6 +149,21 @@ class GPT(nn.Module):
         # final layer to project back to dimension of vocab_size
         # no bias needed bc after layernorm
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
+
+        self.transformer.wte.weight = self.lm_head.weight
+
+        self.apply(self._init_weights)
+    
+    def _init_weights(self, module):
+      if isinstance(module, nn.Linear):
+        std = 0.02
+        if hasattr(module, 'SCALE_INIT'):
+          std *= (2 * self.config.n_layer) ** -0.5
+        torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+        if module.bias is not None:
+            torch.nn.init.zeros_(module.bias)
+      elif isinstance(module, nn.Embedding):
+          torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
     
     def forward(self, idx, targets=None):
         # idx is of shape (B, T)
@@ -156,51 +208,116 @@ class GPT(nn.Module):
 
         return optimizer
 
-device = "cpu"
-if torch.cuda.is_available():
-    device = "cuda"
-elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-    device = "mps"
-print(f"Using device: {device}")
+ddp = int(os.environ.get('RANK', -1)) != -1
+if ddp:
+    assert torch.cuda.is_available()
+    init_process_group(backend='nccl')
+    ddp_rank = int(os.environ['RANK'])
+    ddp_local_rank = int(os.environ['LOCAL_RANK'])
+    ddp_world_size = int(os.environ['WORLD_SIZE'])
+    device = f'cuda:{ddp_local_rank}'
+    torch.cuda.set_device(device)
+    master_process = ddp_rank == 0
+else:
+    ddp_rank = 0
+    ddp_local_rank = 0
+    ddp_world_size = 1
+    master_process = True
 
-max_length = 30
-num_return_sequences = 5
-# model = GPT.from_pretrained('gpt2')
-model = GPT(GPTConfig())
-# model.eval()
-model.to(device)
-print('starting')
+    device = "cpu"
+    if torch.cuda.is_available():
+        device = "cuda"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        device = "mps"
+    print(f"Using device: {device}")
 
+total_batch_size = 524288 # 2**19
+B, T = 16, 1024
+assert total_batch_size % (B * T * ddp_world_size) == 0
+grad_accum_steps = total_batch_size // (B * T * ddp_world_size)
 
-B, T = 4, 32
 train_loader = DataLoaderLite(B, T, filename='input.txt')
 
-optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4)
-for i in range(50):
-    x, y = train_loader.next_batch()
-    x, y = x.to(device), y.to(device)
+torch.set_float32_matmul_precision('high')
+
+model = GPT(GPTConfig())
+model.to(device)
+print('starting')
+model = torch.compile(model)
+if ddp:
+    model = DDP(model, device_ids=[ddp_local_rank])
+
+max_lr = 3e-4
+min_lr = max_lr * 0.1
+warmup_steps = 10
+max_steps = 50
+def get_lr(it):
+    # learning rate decay function from paper
+    if it < warmup_steps:
+        return max_lr * (it + 1) / warmup_steps
+    if it > max_steps:
+        return min_lr
+    decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
+    assert 0 <= decay_ratio <= 1
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
+    return min_lr + coeff * (max_lr - min_lr)
+
+# optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
+optimizer = model.configure_optimizer(weight_decay=0.1, learning_rate=6e-4, device=device)
+
+for step in range(max_steps):
+    t0 = time.time()
     optimizer.zero_grad()
-    logits, loss = model(x, y)
-    loss.backward()
+    loss_accum = 0.0
+
+    for micro_step in range(grad_accum_steps):
+        x, y = train_loader.next_batch()
+        x, y = x.to(device), y.to(device) 
+        with torch.autocast(device_type=device, dtype=torch.bfloat16):
+            logits, loss = model(x, y)
+
+        loss = loss / grad_accum_steps
+        loss_accum += loss.detach()
+
+        if ddp:
+            model.require_backward_grad_sync = (micro_step == grad_accum_steps - 1)
+        loss.backward()
+
+    if ddp:
+        dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
+
+    norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+
+    lr = get_lr(step)
+    for param_group in optimizer.param_groups:
+        param_group['lr'] = lr
     optimizer.step()
-    print(f"step {i}, loss: {loss.item()}")
+    if 'cuda' in device:
+        torch.cuda.synchronize()
+    t1 = time.time()
+    dt = (t1 - t0) * 1000
+    tokens_processed = train_loader.B * train_loader.T * grad_accum_steps * ddp_world_size
+    print(f"step {step:4d}, loss: {loss_accum.item():.6f}, time: {dt:.4e} ms, norm: {norm:.4f}, tok/sec: {tokens_processed / dt}")
 
-import sys
-sys.exit(0)
 
-while x.size(1) < max_length:
-    with torch.no_grad():
-        logits, loss = model(x)
-        logits = logits[:, -1, :]
-        probs = F.softmax(logits, dim=-1)
-        # clamps anything below top 50 to 0 so it will never be sampled
-        topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
-        ix = torch.multinomial(topk_probs, 1)
-        xcol = torch.gather(topk_indices, -1, ix)
-        x = torch.cat((x, xcol), dim=1)
+if ddp:
+    destroy_process_group()
+# import sys
+# sys.exit(0)
 
-for i in range(num_return_sequences):
-    tokens = x[i, :max_length].tolist()
-    decoded = enc.decode(tokens)
-    print(">", decoded)
+# while x.size(1) < max_length:
+#     with torch.no_grad():
+#         logits, loss = model(x)
+#         logits = logits[:, -1, :]
+#         probs = F.softmax(logits, dim=-1)
+#         # clamps anything below top 50 to 0 so it will never be sampled
+#         topk_probs, topk_indices = torch.topk(probs, 50, dim=-1)
+#         ix = torch.multinomial(topk_probs, 1)
+#         xcol = torch.gather(topk_indices, -1, ix)
+#         x = torch.cat((x, xcol), dim=1)
+
+# for i in range(num_return_sequences):
+#     tokens = x[i, :max_length].tolist()
+#     decoded = enc.decode(tokens)
+#     print(">", decoded)
 
