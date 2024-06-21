@@ -14,7 +14,7 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         """Init layers and defines properties."""
         super().__init__()
-        # n_embd must be multiple of head num
+        # n_embd must be multiple of head num for multi-head attention
         assert config.n_embd % config.n_head == 0
         
         # linear initialization of all tunable params
@@ -41,11 +41,6 @@ class CausalSelfAttention(nn.Module):
         k = k.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # dimensions (B, nh, T, hs)
         q = q.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # dimensions (B, nh, T, hs)
         v = v.view(B, T, self.n_head, C // self.n_head).transpose(1, 2) # dimensions (B, nh, T, hs)
-
-        # att = (q @ k.transpose(-2, -1)) * (1.0 / math.sqrt(k.size(-1))) # attn w normalization
-        # att = att.masked_fill(self.bias[:,:,:T,:T] == 0, float('-inf')) # replace 0s in mask with -inf as prep for softmax
-        # att = F.softmax(att, dim=-1)
-        # y = att @ v # combine attention with values: (B, nh, T, T) -> (B, nh, T, hs)
 
         # flash attention
         y = torch.nn.functional.scaled_dot_product_attention(q, k, v, attn_mask=None, dropout_p=0)
@@ -165,12 +160,9 @@ print(f"Using device: {device}")
 
 max_length = 30
 num_return_sequences = 5
-# model = GPT.from_pretrained('gpt2')
 model = GPT(GPTConfig())
-# model.eval()
 model.to(device)
 print('starting')
-
 
 B, T = 4, 32
 train_loader = DataLoaderLite(B, T, filename='input.txt')
