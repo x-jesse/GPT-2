@@ -1,5 +1,6 @@
 import math
 import os
+import logging
 import torch
 import tiktoken
 import time
@@ -13,7 +14,13 @@ from transformer import GPT, GPTConfig
 from hellaswag import render_example, iterate_examples
 
 
+logger = logging.getLogger(__name__)
+
+
 def get_most_likely_row(tokens, mask, logits):
+    """
+    Helper function written specifically for hellaswag eval
+    """
     # evaluate the autoregressive loss at all positions
     shift_logits = (logits[..., :-1, :]).contiguous()
     shift_tokens = (tokens[..., 1:]).contiguous()
@@ -34,11 +41,16 @@ def get_most_likely_row(tokens, mask, logits):
 
 
 def main():
+    """
+    Main training loop, requires DDP (distrbuted data parallel). No point in training without multiple GPUs - not efficient.
+    
+    """
 
     ddp = int(os.environ.get('RANK', -1)) != -1
     if ddp:
         assert torch.cuda.is_available()
         init_process_group(backend='nccl')
+
         ddp_rank = int(os.environ['RANK'])
         ddp_local_rank = int(os.environ['LOCAL_RANK'])
         ddp_world_size = int(os.environ['WORLD_SIZE'])
@@ -46,28 +58,26 @@ def main():
         torch.cuda.set_device(device)
         master_process = ddp_rank == 0
     else:
-        ddp_rank = 0
-        ddp_local_rank = 0
-        ddp_world_size = 1
-        master_process = True
-
-        device = "cpu"
-        if torch.cuda.is_available():
-            device = "cuda"
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            device = "mps"
-        print(f"Using device: {device}")
+        logger.error("DDP not supported")
+        return
     
     device_type = "cuda" if device.startswith("cuda") else "cpu"
 
-    total_batch_size = 524288 # 2**19
+    # params directly from paper
+    total_batch_size = 524288 # 2**19, nice number
     B, T = 16, 1024
-    assert total_batch_size % (B * T * ddp_world_size) == 0
+    assert total_batch_size % (B * T * ddp_world_size) == 0 # we require our batch size to be evenly distrbutable across our worker GPUs
+    """
+    Even with DDP, we can't process a batch size of ~.5 million - we use gradient accumulation to compute our gradient for our total
+    batch by taking smaller mini-batches that we can compute gradients for, and sum them up afterwards
+    """
     grad_accum_steps = total_batch_size // (B * T * ddp_world_size)
 
+    # load training and validation sets
     train_loader = DataLoaderLite(B, T, process_rank=ddp_rank, num_processes=ddp_world_size, split="train")
     val_loader = DataLoaderLite(B, T, process_rank=ddp_rank, num_processes=ddp_world_size, split="val")
 
+    # useful optimization for pytorch, by truncating our floats and losing some precision, code goes faster
     torch.set_float32_matmul_precision('high')
 
     enc = tiktoken.get_encoding('gpt2')
@@ -75,12 +85,17 @@ def main():
     model = GPT(GPTConfig())
     model.to(device)
 
-    # model = torch.compile(model)
+    # torch compile doesn't work w dataset evaluations?
+    model = torch.compile(model)
 
-    if ddp:
-        model = DDP(model, device_ids=[ddp_local_rank])
-    raw_model = model.module if ddp else model
+    model = DDP(model, device_ids=[ddp_local_rank])
+    model = model.module
 
+    """
+    GPT-2 uses a non-linear learning rate function that ramps up and then decays over time.
+    All hyperparams here are based on the paper.
+    
+    """
     max_lr = 3e-4
     min_lr = max_lr * 0.1
     warmup_steps = 10
@@ -91,13 +106,13 @@ def main():
             return max_lr * (it + 1) / warmup_steps
         if it > max_steps:
             return min_lr
+        
         decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
         assert 0 <= decay_ratio <= 1
         coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
         return min_lr + coeff * (max_lr - min_lr)
 
-    # optimizer = torch.optim.AdamW(model.parameters(), lr=3e-4, betas=(0.9, 0.95), eps=1e-8)
-    optimizer = raw_model.configure_optimizer(weight_decay=0.1, learning_rate=6e-4, device=device)
+    optimizer = model.configure_optimizer(weight_decay=0.1, learning_rate=6e-4, device=device)
 
     # create the log directory we will write checkpoints to and log to
     log_dir = "log"
@@ -106,6 +121,7 @@ def main():
     with open(log_file, "w") as f: # open for writing to clear the file
         pass
 
+    # training time!
     for step in range(max_steps):
         t0 = time.time()
         last_step = (step == max_steps - 1)
@@ -122,27 +138,26 @@ def main():
                     x, y = x.to(device), y.to(device)
                     with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
                         logits, loss = model(x, y)
+
                     loss = loss / val_loss_steps
                     val_loss_accum += loss.detach()
 
-            if ddp:
-                dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
+            # combines our worker GPU losses
+            dist.all_reduce(val_loss_accum, op=dist.ReduceOp.AVG)
 
             if master_process:
                 print(f"validation loss: {val_loss_accum.item():.4f}")
                 with open(log_file, "a") as f:
                     f.write(f"{step} val {val_loss_accum.item():.4f}\n")
-                if step > 0 and (step % 5000 == 0 or last_step):
-                    # optionally write model checkpoints
+                if last_step:
+                    # save our model
                     checkpoint_path = os.path.join(log_dir, f"model_{step:05d}.pt")
                     checkpoint = {
-                        'model': raw_model.state_dict(),
-                        'config': raw_model.config,
+                        'model': model.state_dict(),
+                        'config': model.config,
                         'step': step,
                         'val_loss': val_loss_accum.item()
                     }
-                    # you might also want to add optimizer.state_dict() and
-                    # rng seeds etc., if you wanted to more exactly resume training
                     torch.save(checkpoint, checkpoint_path)
 
         # once in a while evaluate hellaswag
@@ -164,14 +179,15 @@ def main():
                     pred_norm = get_most_likely_row(tokens, mask, logits)
                 num_total += 1
                 num_correct_norm += int(pred_norm == label)
+            
             # reduce the stats across all processes
-            if ddp:
-                num_total = torch.tensor(num_total, dtype=torch.long, device=device)
-                num_correct_norm = torch.tensor(num_correct_norm, dtype=torch.long, device=device)
-                dist.all_reduce(num_total, op=dist.ReduceOp.SUM)
-                dist.all_reduce(num_correct_norm, op=dist.ReduceOp.SUM)
-                num_total = num_total.item()
-                num_correct_norm = num_correct_norm.item()
+            num_total = torch.tensor(num_total, dtype=torch.long, device=device)
+            num_correct_norm = torch.tensor(num_correct_norm, dtype=torch.long, device=device)
+            dist.all_reduce(num_total, op=dist.ReduceOp.SUM)
+            dist.all_reduce(num_correct_norm, op=dist.ReduceOp.SUM)
+            num_total = num_total.item()
+            num_correct_norm = num_correct_norm.item()
+
             acc_norm = num_correct_norm / num_total
             if master_process:
                 print(f"HellaSwag accuracy: {num_correct_norm}/{num_total}={acc_norm:.4f}")
@@ -222,8 +238,7 @@ def main():
             x, y = train_loader.next_batch()
             x, y = x.to(device), y.to(device)
 
-            if ddp:
-                model.require_backward_grad_sync = (micro_step == grad_accum_steps - 1)
+            model.require_backward_grad_sync = (micro_step == grad_accum_steps - 1)
 
             with torch.autocast(device_type=device_type, dtype=torch.bfloat16):
                 logits, loss = model(x, y)
@@ -232,16 +247,15 @@ def main():
             loss_accum += loss.detach()
             loss.backward()
             
-        if ddp:
-            dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
+        dist.all_reduce(loss_accum, op=dist.ReduceOp.AVG)
         norm = torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
         # determine and set the learning rate for this iteration
         lr = get_lr(step)
         for param_group in optimizer.param_groups:
             param_group['lr'] = lr
         optimizer.step()
-        if device_type == "cuda":
-            torch.cuda.synchronize() # wait for the GPU to finish work
+        torch.cuda.synchronize() # wait for the GPU to finish work
+        
         t1 = time.time()
         dt = t1 - t0 # time difference in seconds
         tokens_processed = train_loader.B * train_loader.T * grad_accum_steps * ddp_world_size
@@ -251,8 +265,7 @@ def main():
             with open(log_file, "a") as f:
                 f.write(f"{step} train {loss_accum.item():.6f}\n")
         
-    if ddp:
-        destroy_process_group()
+    destroy_process_group()
 
 if __name__ == '__main__':
     main()

@@ -58,12 +58,16 @@ class CausalSelfAttention(nn.Module):
 
         y = y.transpose(1, 2).contiguous().view(B, T, C) # concat all head outputs
 
+        # last projection layer down to vocab size
         y = self.c_proj(y)
 
         return y
 
 
 class MLP(nn.Module):
+    """
+    Multi-layer perceptron layer
+    """
 
     def __init__(self, config):
         super().__init__()
@@ -80,6 +84,9 @@ class MLP(nn.Module):
 
  
 class Block(nn.Module):
+    """
+    1 head of attention
+    """
     
     def __init__(self, config):
         super().__init__()
