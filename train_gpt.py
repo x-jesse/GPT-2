@@ -9,9 +9,9 @@ from torch.distributed import init_process_group, destroy_process_group
 from torch.nn.parallel import DistributedDataParallel as DDP
 
 from dataloader import DataLoaderLite
-from gpt_config import GPTConfig
-from transformer import GPT
+from transformer import GPT, GPTConfig
 from hellaswag import render_example, iterate_examples
+
 
 def get_most_likely_row(tokens, mask, logits):
     # evaluate the autoregressive loss at all positions
@@ -31,6 +31,7 @@ def get_most_likely_row(tokens, mask, logits):
     # the one with the lowest loss should be the most likely
     pred_norm = avg_loss.argmin().item()
     return pred_norm 
+
 
 def main():
 

@@ -1,3 +1,13 @@
+"""
+Function to load GPT-2 using OpenAI's trained weights.
+Used for testing and comparison.
+
+"""
+
+import torch
+
+from transformer import GPT, GPTConfig
+
 def from_pretrained(cls, model_type):
     """Loads pretrained GPT-2 model weights from huggingface"""
     assert model_type in {'gpt2', 'gpt2-medium', 'gpt2-large', 'gpt2-xl'}
