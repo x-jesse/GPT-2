@@ -21,7 +21,18 @@ To run the model:
 ## Introduction
 
 
-### What is a GPT?
-Formally, a generative pre-trained transformer is a LLM that uses transformer-type architecture to perform predictive text generation: As introduced in the 2017 paper [Attention is All You Need](https://arxiv.org/abs/1706.03762), transfomers use the principle of "attention" to provide contextual weight to token embeddings. 
 
-In other words, a GPT is just a really big game of guess-the-next-word.
+
+### What is a GPT?
+
+Formally, a generative pre-trained transformer (GPT) is a LLM that uses transformer-type architecture to perform predictive text generation: As introduced in the 2017 paper [Attention is All You Need](https://arxiv.org/abs/1706.03762), transfomers use the principle of "attention" to provide contextual weight to token embeddings. 
+
+In other words, a GPT is just a really big game of guess-the-next-word. Given some sentence "The quick brown fox jumped over the lazy ____ ", a GPT would try to predict the next word. A well-trained model would probably predict the word "dog" with high probability. Similarly, it should predict the word "blue" for the phrase "The sky is ___", and "sun" for "The Earth revolves around the __". If we let it continue running, we can see how we might generate longer lengths of text by just recursively passing in the output of the GPT back as an input, and continually having it predict the next word. It's basically just better autocomplete. The main difference that separates ChatGPT from your standard autocomplete being *context*. 
+
+To the best of my knowledge, most autocomplete algorithms work based on frequency - that is, when you type some words or letters, autocomplete will find the most commonly used variation of that phrase and suggest it to you. This is also quite similar to how some naive language models work - based on the last character or word entered, the model will try to predict what comes next. We generally refer to these as [*bigram language models*](https://en.wikipedia.org/wiki/Word_n-gram_language_model) since they generate the next word by looking at the one before it. However, this obviously isn't how communication works in practice. Context is important - how else would we differentiate the word "mole" in the phrase "1 mole of carbon dioxide" vs "a star-nosed mole rat"? To a bigram language model, semantics are not important. Or rather, it doesn't even have the ability to understand context since it's limited to a single word. 
+
+So, what if we tried expanding the context? If we pass two, or even more words into the model, it should theoretically be able to make better predictions, right? Well, not quite. In cases like the "mole" mentioned previously, maybe. But when the sentence structure is very similar, the model will struggle. For example, to correctly predict the gender in the phrases "Sheila is a ____ " vs "Bobby is a ____", the language model would need to understand that "Sheila" is typically a girl's name whereas "Bobby" typically corresponds to a boy. Only by making that distinction could the model be able to correctly fill in the blank with "boy" or "girl" more than 50% of the time. 
+
+Context is important for our model to produce coherent sentences. Without it, we're not any better than regular autocomplete. Naturally, we want a way for our model to understand the deeper "meaning" behind each string of text it parses - some way to *encode* the semantics of what it sees. 
+
+
