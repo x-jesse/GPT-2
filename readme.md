@@ -27,7 +27,7 @@ To run the model:
 
 <p align="center"><img src="visuals/big-brain.png" width=250></p>
 
-Formally, a generative pre-trained transformer (GPT) is a LLM that uses transformer-type architecture to perform predictive text generation: As introduced in the 2017 paper [Attention is All You Need](https://arxiv.org/abs/1706.03762), transfomers use the principle of "attention" to provide contextual weight to token embeddings :snore:. 
+Formally, a generative pre-trained transformer (GPT) is a LLM that uses transformer-type architecture to perform predictive text generation: As introduced in the 2017 paper [Attention is All You Need](https://arxiv.org/abs/1706.03762), transfomers use the principle of "attention" to provide contextual weight to token embeddings :sleepy:. 
 
 In other words, a GPT is just a really big game of guess-the-next-word. Given some sentence "The quick brown fox jumped over the lazy ____ ", a GPT would try to predict the next word. A well-trained model would probably predict the word "dog" with high probability. Similarly, it should predict the word "blue" for the phrase "The sky is ___", and "sun" for "The Earth revolves around the __". If we let it continue running, we can see how we might generate longer lengths of text by just recursively passing in the output of the GPT back as an input, and continually having it predict the next word. It's basically just better autocomplete. The main difference that separates ChatGPT from your standard autocomplete being *context*. 
 
