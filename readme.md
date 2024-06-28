@@ -19,7 +19,7 @@ Training the model:
 
 1. [Introduction](#introduction)
     - [What is a GPT?](#what-is-a-gpt)
-    - [Transformers - "Attention is All You Need"]()
+    - []()
 2. [Implementation]()
     - [Building the Model]()
     - [Training the Model]()
@@ -36,6 +36,8 @@ Please enjoy, and happy learning! <3
 - Large Language Models (LLMs)
 - Generative Pre-Trained Transformer (GPT)
 - Self-Attention
+- Tokenization
+- Distributed Data Parallel (DDP)
 
 ### What is a GPT?
 
@@ -52,3 +54,7 @@ So, what if we tried expanding the context? If we pass two, or even more words i
 Context is important for our model to produce coherent sentences. Without it, we're not any better than regular autocomplete. Naturally, we want a way for our model to understand the deeper "meaning" behind each string of text it parses - some way to *encode* the semantics of what it sees. 
 
 
+### Transformers - "Attention is All You Need"
+
+
+## Implementation
