@@ -24,7 +24,7 @@ Training the model:
 ```
 
 
-## Introduction
+# Introduction
 
 This repo is a beginner-friendly walkthrough of all the concepts needed to build a LLM, inspired by Andrej Karpathy's [nano-gpt](). However, it applies training concepts that are not likely to be accessible to those running regular PCs, as certain optimizations (namely DDP) are not supported by household PCs. Detailed instructions as to how to run and train can be found in a separate section. For those without the time or money to spend on cloud GPUs, [Simple-GPT]() is an alternative, extremely lightweight trainable example that anyone can run from Google Collab for free. 
 
@@ -39,7 +39,7 @@ Please enjoy, and happy learning! <3
 - Tokenization
 - Distributed Data Parallel (DDP)
 
-### What is a GPT?
+## What is a GPT?
 
 <p align="center"><img src="visuals/big-brain.png" width=250></p>
 
@@ -54,7 +54,6 @@ So, what if we tried expanding the context? If we pass two, or even more words i
 Context is important for our model to produce coherent sentences. Without it, we're not any better than regular autocomplete. Naturally, we want a way for our model to understand the deeper "meaning" behind each string of text it parses - some way to *encode* the semantics of what it sees. 
 
 
-### Transformers - "Attention is All You Need"
+## Transformers - "Attention is All You Need"
 
-
-## Implementation
+# Implementation
