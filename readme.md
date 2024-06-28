@@ -4,6 +4,8 @@ This is a re-implementation of the GPT-2 (124M) model in PyTorch based on the Op
 
 ### Usage
 
+TODO
+
 To run the model:
 ```
 ```
@@ -24,7 +26,7 @@ Training the model:
 
 ## Introduction
 
-
+This repo is a beginner-friendly walkthrough of all the concepts needed to build a LLM, inspired by Andrej Karpathy's [nano-gpt]()
 
 
 ### What is a GPT?
