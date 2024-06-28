@@ -26,8 +26,16 @@ Training the model:
 
 ## Introduction
 
-This repo is a beginner-friendly walkthrough of all the concepts needed to build a LLM, inspired by Andrej Karpathy's [nano-gpt]()
+This repo is a beginner-friendly walkthrough of all the concepts needed to build a LLM, inspired by Andrej Karpathy's [nano-gpt](). However, it applies training concepts that are not likely to be accessible to those running regular PCs, as certain optimizations (namely DDP) are not supported by household PCs. Detailed instructions as to how to run and train can be found in a separate section. For those without the time or money to spend on cloud GPUs, [Simple-GPT]() is an alternative, extremely lightweight trainable example that anyone can run from Google Collab for free. 
 
+Please enjoy, and happy learning! <3
+
+**Concepts Introduced** (for easy Google searching):
+- Machine Learning
+- Neural Networks
+- Large Language Models (LLMs)
+- Generative Pre-Trained Transformer (GPT)
+- Self-Attention
 
 ### What is a GPT?
 
