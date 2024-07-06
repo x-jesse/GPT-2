@@ -10,7 +10,6 @@ import os
 parser = argparse.ArgumentParser()
 parser.add_argument('-s', '--shard-size', default=int(1e8))
 parser.add_argument('-t', '--is-test', action='store_true')
-
 args = parser.parse_args()
 
 DATA_CACHE_DIR = os.path.join(os.path.dirname(__file__), "openwebtext-10k")

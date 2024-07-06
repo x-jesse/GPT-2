@@ -12,6 +12,7 @@ This is a from-scratch, educational re-implementation of the GPT-2 (124M) model 
 2. [Implementation]()
     - [Building the Model]()
     - [Training the Model]()
+3. [Learning Resources]()
 
 ### Usage
 
@@ -65,7 +66,7 @@ Context is important for our model to produce coherent sentences. Without it, we
 
 ### Tokenization & Embeddings
 
-We begin by splitting our text into *tokens*. Each token is a fragment of text - a character, a word, or some consecutive substring. (For our purposes, it may be easier to think of each token as a word.) We then *encode* each token to a specific set of numerical values - a process called *embedding*. Embedding is a way for us to numerically encode the meaning behind pieces of text. Just like how the function $f(x)=x$ maps independent variables to dependent values, we want to map our tokens to some specific, semantic meaning encoded via our embeddings. Our embeddings themselves are just arrays of numbers - high-dimensional vectors of randomly initialized values. They won't provide any useful information to us humans, but as we train our model on these embeddings, we want it learn the semantics behind each token.
+We begin by splitting our text into *tokens*. Each token is a fragment of text - a character, a word, or some consecutive substring. We then *encode* each token to a specific set of numerical values - a process called *embedding*. Embedding is a way for us to numerically encode the meaning behind pieces of text. Just like how the function $f(x)=x$ maps independent variables to dependent values, we want to map our tokens to some specific, semantic meaning encoded via our embeddings. Our embeddings themselves are just arrays of numbers - high-dimensional vectors of randomly initialized values. They won't provide any useful information to us humans, but as we train our model, we want it to adjust these embeddings  
 
 Our solution to this is an **embedding matrix** - a really large, high-dimensional matrix of values that serves as a numerical representation of the text. Specifically, we split our text into **tokens**.  Each token has a unique integer value that corresponds to some specific row in the embedding matrix. 
 
@@ -74,3 +75,15 @@ Our solution to this is an **embedding matrix** - a really large, high-dimension
 Let's introduce the concept of **attention**. 
 
 # Implementation
+
+# Learning Resources
+
+> *If you can't explain it simply, you don't understand it well enough. - Albert Einstein*
+
+My writings are by no means 100% correct - they serve as means to teach both others and myself. Please do your own research as well. I've linked some helpful resources below. As always, happy learning! :)
+
+- [3Blue1Brown - Machine Learning Playlist](https://www.youtube.com/watch?v=aircAruvnKk&list=PLZHQObOWTQDNU6R1_67000Dx_ZCJB-3pi)
+- [Andrej Karpathy - Neural Networks: Zero to Hero](https://www.youtube.com/watch?v=VMj-3S1tku0&list=PLAqhIrjkxbuWI23v9cThsA9GvCAUhRvKZ)
+- [Huggingface Pytorch GPT-2 Implementation](https://github.com/huggingface/transformers/blob/main/src/transformers/models/gpt2/modeling_gpt2.py#L41)
+- [OpenAI TensorFlow GPT-2 Implementation](https://github.com/openai/gpt-2/blob/master/src/model.py)
+- ["Attention is All You Need" Paper](https://arxiv.org/abs/1706.03762)
