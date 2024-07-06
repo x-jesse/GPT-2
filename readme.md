@@ -33,12 +33,12 @@ This repo is a beginner-friendly walkthrough of all the concepts needed to build
 Please enjoy, and happy learning! <3
 
 **Concepts Introduced** (for easy Google searching):
-- Machine Learning
-- Neural Networks
+- Machine Learning (ML)
+- Neural Networks: backpropagation, optimizers
 - Large Language Models (LLMs)
 - Generative Pre-Trained Transformer (GPT)
-- Self-Attention
-- Tokenization
+- Self-Attention: flash attention, cross attention
+- Tokenization: BPE algorithm
 - Distributed Data Parallel (DDP)
 
 ## What is a GPT?

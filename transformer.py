@@ -8,12 +8,15 @@ from dataclasses import dataclass
 
 @dataclass
 class GPTConfig:
-    # params from GPT-2 paper
+    """
+    We set our initial parameters based on the GPT-2 paper. We can later adjust them per our hardware
+    """
     block_size: int = 1024
     n_layer: int = 12
+
     # number of tokens: 50k BPE merges + 256 byte tokens + 1 <|endoftext|> special char = 50257
     # padded to 50304 bc multiple of 64
-    vocab_size: int = 50304 
+    vocab_size: int = 50304
     n_head: int = 12
     n_embd: int = 768
 
@@ -24,15 +27,13 @@ class CausalSelfAttention(nn.Module):
     def __init__(self, config):
         """Init layers and defines properties."""
         super().__init__()
-        # n_embd must be multiple of head num
-        assert config.n_embd % config.n_head == 0
-        
+
         # linear initialization of all tunable params
         # since we use this layer for all query, key, and value params
         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
 
         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
-        self.c_proj.SCALE_INIT = 1
+        # self.c_proj.SCALE_INIT = 1
         self.n_head = config.n_head
         self.n_embd = config.n_embd
 
@@ -74,7 +75,7 @@ class MLP(nn.Module):
         self.c_fc = nn.Linear(config.n_embd, 4 * config.n_embd)
         self.gelu = nn.GELU()
         self.c_proj = nn.Linear(4 * config.n_embd, config.n_embd)
-        self.c_proj.SCALE_INIT = 1
+        # self.c_proj.SCALE_INIT = 1
 
     def forward(self, x):
         x = self.c_fc(x)
@@ -121,28 +122,29 @@ class GPT(nn.Module):
 
         self.transformer.wte.weight = self.lm_head.weight
 
-        self.apply(self._init_weights)
+        # self.apply(self._init_weights)
     
-    def _init_weights(self, module):
-      if isinstance(module, nn.Linear):
-        std = 0.02
-        if hasattr(module, 'SCALE_INIT'):
-          std *= (2 * self.config.n_layer) ** -0.5
-        torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
-        if module.bias is not None:
-            torch.nn.init.zeros_(module.bias)
-      elif isinstance(module, nn.Embedding):
-          torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    # def _init_weights(self, module):
+    #   if isinstance(module, nn.Linear):
+    #     std = 0.02
+    #     if hasattr(module, 'SCALE_INIT'):
+    #       std *= (2 * self.config.n_layer) ** -0.5
+    #     torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
+    #     if module.bias is not None:
+    #         torch.nn.init.zeros_(module.bias)
+    #   elif isinstance(module, nn.Embedding):
+    #       torch.nn.init.normal_(module.weight, mean=0.0, std=0.02)
     
     def forward(self, idx, targets=None):
         # idx is of shape (B, T)
         B, T = idx.size()
-        assert T <= self.config.block_size, f"Cannot forward sequence of length {T}, block size is only {self.config.block_size}"
+
         # forward the token and posisition embeddings
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device) # shape (T)
         pos_emb = self.transformer.wpe(pos) # position embeddings of shape (T, n_embd)
         tok_emb = self.transformer.wte(idx) # token embeddings of shape (B, T, n_embd)
         x = tok_emb + pos_emb
+
         # forward the blocks of the transformer
         for block in self.transformer.h:
             x = block(x)
@@ -150,6 +152,7 @@ class GPT(nn.Module):
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x) # (B, T, vocab_size)
         loss = None
+
         if targets is not None:
             loss = F.cross_entropy(logits.view(-1, logits.size(-1)), targets.view(-1))
         return logits, loss
@@ -164,15 +167,13 @@ class GPT(nn.Module):
             {'params': decay_params, 'weight_decay': weight_decay},
             {'params': nodecay_params, 'weight_decay': 0.0}
         ]
-        num_decay_params = sum(p.numel() for p in decay_params)
-        num_nodecay_params = sum(p.numel() for p in nodecay_params)
-        print(f"num decayed parameter tensors: {len(decay_params)}, with {num_decay_params:,} parameters")
-        print(f"num non-decayed parameter tensors: {len(nodecay_params)}, with {num_nodecay_params:,} parameters")
         
         fused_available = 'fused' in inspect.signature(torch.optim.AdamW).parameters
         use_fused = fused_available and device_type == 'cuda'
         extra_args = dict(fused=True) if use_fused else dict()
+
         optimizer = torch.optim.AdamW(optim_groups, lr=learning_rate, betas=betas, **extra_args)
-        print(f"using fused AdamW: {use_fused}")
+        if use_fused:
+            print("using fused AdamW")
 
         return optimizer

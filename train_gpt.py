@@ -11,38 +11,11 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 
 from dataloader import DataLoaderLite
 from transformer import GPT, GPTConfig
-from hellaswag import render_example, iterate_examples
-
-
-logger = logging.getLogger(__name__)
-
-
-def get_most_likely_row(tokens, mask, logits):
-    """
-    Helper function written specifically for hellaswag eval
-    """
-    # evaluate the autoregressive loss at all positions
-    shift_logits = (logits[..., :-1, :]).contiguous()
-    shift_tokens = (tokens[..., 1:]).contiguous()
-    flat_shift_logits = shift_logits.view(-1, shift_logits.size(-1))
-    flat_shift_tokens = shift_tokens.view(-1)
-    shift_losses = F.cross_entropy(flat_shift_logits, flat_shift_tokens, reduction='none')
-    shift_losses = shift_losses.view(tokens.size(0), -1)
-    # now get the average loss just for the completion region (where mask == 1), in each row
-    shift_mask = (mask[..., 1:]).contiguous() # we must shift mask, so we start at the last prompt token
-    masked_shift_losses = shift_losses * shift_mask
-    # sum and divide by the number of 1s in the mask
-    sum_loss = masked_shift_losses.sum(dim=1)
-    avg_loss = sum_loss / shift_mask.sum(dim=1)
-    # now we have a loss for each of the 4 completions
-    # the one with the lowest loss should be the most likely
-    pred_norm = avg_loss.argmin().item()
-    return pred_norm 
 
 
 def main():
     """
-    Main training loop, requires DDP (distrbuted data parallel). No point in training without multiple GPUs - not efficient.
+    Main training loop.
     
     """
 
@@ -58,15 +31,18 @@ def main():
         torch.cuda.set_device(device)
         master_process = ddp_rank == 0
     else:
-        logger.error("DDP not supported")
-        return
+        master_process = True
+        seed_offset = 0
+        ddp_world_size = 1
     
     device_type = "cuda" if device.startswith("cuda") else "cpu"
 
     # params directly from paper
     total_batch_size = 524288 # 2**19, nice number
     B, T = 16, 1024
+    
     assert total_batch_size % (B * T * ddp_world_size) == 0 # we require our batch size to be evenly distrbutable across our worker GPUs
+
     """
     Even with DDP, we can't process a batch size of ~.5 million - we use gradient accumulation to compute our gradient for our total
     batch by taking smaller mini-batches that we can compute gradients for, and sum them up afterwards
