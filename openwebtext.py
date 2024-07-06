@@ -1,10 +1,11 @@
 import argparse
-import tiktoken
-import numpy as np
-import os
 from datasets import load_dataset
 import multiprocessing as mp
+import numpy as np
+import tiktoken
 from tqdm import tqdm
+import os
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-s', '--shard-size', default=int(1e8))
@@ -18,9 +19,10 @@ os.makedirs(DATA_CACHE_DIR, exist_ok=True)
 """
 Open Web Text contains many rows of text strings sourced from the internet
 """
-
 if args.is_test:
     ds = load_dataset("stas/openwebtext-10k", split='train')
+else:
+    pass
 
 enc = tiktoken.get_encoding('gpt2')
 # For our test data, sharding isn't necessary since ds == 10k (small)
@@ -39,7 +41,6 @@ num_procs = os.cpu_count() // 2
 
 if __name__ == '__main__':
     with mp.Pool(processes=num_procs) as pool:
-
         """
         Data sharding via multiprocessing:
             - Chunksize separates our data into batches of 16, and gives each worker a batch
@@ -56,7 +57,6 @@ if __name__ == '__main__':
         buffer = np.empty((shard_size,), dtype=np.uint16)
 
         for tokens in pool.imap(tokenize, ds, chunksize=16): # imap is just lazy map()
-
             if len(tokens) + cur_size > shard_size:
                 new_shard = os.path.join(DATA_CACHE_DIR, f"openwebtext_{shard_index:06d}")
                 cur_size += len(tokens)
@@ -64,10 +64,8 @@ if __name__ == '__main__':
                 remainder = shard_size - cur_size
                 # update progress
                 prog.update(remainder)
-
                 buffer[cur_size:cur_size + remainder] = tokens[:remainder]
                 np.save(new_shard, buffer)
-
                 shard_index += 1
                 # populate the next shard with the leftovers of the current doc
                 # technically unnecessary to clear the buffer, but makes logical sense
@@ -76,12 +74,10 @@ if __name__ == '__main__':
                 # resets the cur_size
                 cur_size = len(tokens) - remainder
                 prog = None
-
             else:
                 if prog is None:
                     prog = tqdm(total=shard_size, unit="tokens", desc=f"Shard {shard_index}")
                 prog.update(len(tokens))
-
                 buffer[cur_size:cur_size + len(tokens)] = tokens
                 cur_size += len(tokens)
                 prog.update(len(tokens))
