@@ -1,3 +1,11 @@
+"""
+    Dataloading for OpenWebText dataset.
+
+    OpenWebText is an attempted recreation of the actual training
+    data for GPT-2. We will train on this data and attempt to mimic
+    the results from the paper.
+
+"""
 import argparse
 from datasets import load_dataset
 import multiprocessing as mp
@@ -5,7 +13,6 @@ import numpy as np
 import tiktoken
 from tqdm import tqdm
 import os
-
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-s', '--shard-size', default=int(1e8))
@@ -22,7 +29,6 @@ if args.is_test:
     ds = load_dataset("stas/openwebtext-10k", split='train')
 else:
     pass
-
 enc = tiktoken.get_encoding('gpt2')
 # For our test data, sharding isn't necessary since ds == 10k (small)
 # But it will for a production run, where ds > 10B (large)
